@@ -1,12 +1,11 @@
-
 import os
 import io
+import json
 import base64
-import copy
 
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image
-from streamlit_drawable_canvas import st_canvas
 
 
 # ============================================================
@@ -14,130 +13,140 @@ from streamlit_drawable_canvas import st_canvas
 # ============================================================
 
 st.set_page_config(
-    page_title="Whiskers Exploration Game",
+    page_title="Where's Whiskers?",
+    page_icon="🐱",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+
+# Tamanho lógico do quadro (as coordenadas dos itens usam essa escala)
+BOARD_WIDTH = 1120
+
+# Fator aplicado ao tamanho recortado do PNG para o tamanho inicial no quadro
+DEFAULT_SCALE = {
+    "furniture": 0.7,
+    "object": 0.5,
+    "character": 0.45,
+}
+
+ROOM_LABELS = {
+    "bedroom": "🛏️ Bedroom",
+    "living_room": "🛋️ Living Room",
+    "kitchen": "🍳 Kitchen",
+    "bathroom": "🛁 Bathroom",
+    "garden": "🌳 Garden",
+}
 
 
 # ============================================================
 # FUNÇÕES AUXILIARES
 # ============================================================
 
-def image_to_data_url(image_path):
+def pretty(name):
+    return name.replace("_", " ").title()
+
+
+def encode_image(path, max_size, quality=85):
     """
-    Converte uma imagem local para Data URL.
-    Isso permite que o Fabric.js carregue a imagem
-    como um objeto dentro do canvas.
+    Abre o PNG, recorta as bordas transparentes, reduz para
+    no máximo `max_size` px e devolve (data_url, largura, altura)
+    do recorte em tamanho original.
     """
-    with open(image_path, "rb") as file:
-        image_bytes = file.read()
+    image = Image.open(path).convert("RGBA")
 
-    encoded = base64.b64encode(image_bytes).decode("utf-8")
+    bbox = image.getchannel("A").getbbox()
+    if bbox:
+        image = image.crop(bbox)
 
-    extension = os.path.splitext(image_path)[1].lower()
+    width, height = image.size
 
-    mime_types = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".webp": "image/webp",
-    }
+    preview = image.copy()
+    preview.thumbnail((max_size, max_size), Image.LANCZOS)
 
-    mime_type = mime_types.get(extension, "image/png")
+    buffer = io.BytesIO()
+    preview.save(buffer, format="WEBP", quality=quality)
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
-    return f"data:{mime_type};base64,{encoded}"
+    return f"data:image/webp;base64,{encoded}", width, height
 
 
-def create_image_object(image_path, asset_name, asset_type):
-    """
-    Cria um objeto de imagem compatível com o JSON do Fabric.js.
-    """
-
-    image = Image.open(image_path).convert("RGBA")
-
-    original_width, original_height = image.size
-
-    # Tamanho máximo inicial do objeto no canvas
-    max_size = 160
-
-    scale = min(
-        max_size / original_width,
-        max_size / original_height,
-        1.0
+def list_pngs(folder):
+    if not os.path.isdir(folder):
+        return []
+    return sorted(
+        file_name for file_name in os.listdir(folder)
+        if file_name.lower().endswith(".png")
     )
 
-    return {
-        "type": "image",
-        "version": "7.0.0",
 
-        "originX": "left",
-        "originY": "top",
-
-        # Posição inicial
-        "left": 270,
-        "top": 160,
-
-        # Escala inicial
-        "scaleX": scale,
-        "scaleY": scale,
-
-        "angle": 0,
-
-        "flipX": False,
-        "flipY": False,
-
-        "opacity": 1,
-
-        "visible": True,
-
-        "backgroundColor": "",
-
-        "fill": "rgb(0,0,0)",
-
-        "stroke": None,
-        "strokeWidth": 1,
-
-        "selectable": True,
-        "evented": True,
-
-        "asset_name": asset_name,
-        "asset_type": asset_type,
-
-        "src": image_to_data_url(image_path),
-
-        "crossOrigin": "anonymous",
-
-        "width": original_width,
-        "height": original_height,
-
-        "cropX": 0,
-        "cropY": 0,
-
-        "shadow": None,
-        "filters": [],
-    }
-
-
-def empty_canvas():
+@st.cache_data(show_spinner="Loading maps...")
+def load_game_data(assets_dir):
     """
-    Estado inicial vazio do canvas.
+    Cada subpasta de assets/ com um background.png vira um mapa.
+    Dentro dela, furniture/ e objects/ viram os itens disponíveis.
     """
-    return {
-        "version": "7.0.0",
-        "objects": []
-    }
+    assets = {}
+    rooms = []
+
+    def add_asset(key, path, name, kind):
+        src, width, height = encode_image(path, max_size=420)
+        scale = DEFAULT_SCALE[kind]
+        assets[key] = {
+            "name": pretty(name),
+            "kind": kind,
+            "src": src,
+            "ratio": height / width,
+            "width": round(width * scale),
+        }
+
+    character_path = os.path.join(assets_dir, "characters", "whiskers.png")
+    if os.path.exists(character_path):
+        add_asset("characters/whiskers", character_path, "whiskers", "character")
+
+    for room in sorted(os.listdir(assets_dir)):
+        background_path = os.path.join(assets_dir, room, "background.png")
+        if not os.path.exists(background_path):
+            continue
+
+        background_src, bg_width, bg_height = encode_image(
+            background_path, max_size=1600
+        )
+
+        palette = []
+        for kind, folder in (("furniture", "furniture"), ("object", "objects")):
+            for file_name in list_pngs(os.path.join(assets_dir, room, folder)):
+                name = os.path.splitext(file_name)[0]
+                key = f"{room}/{folder}/{name}"
+                add_asset(key, os.path.join(assets_dir, room, folder, file_name), name, kind)
+                palette.append(key)
+
+        rooms.append({
+            "id": room,
+            "label": ROOM_LABELS.get(room, pretty(room)),
+            "background": background_src,
+            "ratio": bg_height / bg_width,
+            "palette": palette,
+        })
+
+    return {"rooms": rooms, "assets": assets, "boardWidth": BOARD_WIDTH}
 
 
-# ============================================================
-# SESSION STATE
-# ============================================================
+def render_board(game_data, height):
+    template_path = os.path.join(BASE_DIR, "board.html")
+    with open(template_path, encoding="utf-8") as file:
+        template = file.read()
 
-if "canvas_drawing" not in st.session_state:
-    st.session_state.canvas_drawing = empty_canvas()
+    payload = json.dumps(game_data).replace("</", "<\\/")
+    html = template.replace("__GAME_DATA__", payload)
 
-if "current_room" not in st.session_state:
-    st.session_state.current_room = None
+    # st.iframe substitui components.html a partir do Streamlit 1.5x
+    if hasattr(st, "iframe"):
+        st.iframe(html, height=height)
+    else:
+        components.html(html, height=height, scrolling=False)
 
 
 # ============================================================
@@ -148,67 +157,53 @@ st.markdown("""
 <style>
     .main-title {
         text-align: center;
-        color: #2c3e50;
-        margin-bottom: 15px;
+        margin: 0 0 4px 0;
+    }
+
+    .subtitle {
+        text-align: center;
+        opacity: 0.7;
+        margin-bottom: 12px;
     }
 
     .vocab-card {
         background-color: #fffbe6;
         border: 1px solid #ffe58f;
-        padding: 15px;
+        color: #2c2c2c;
+        padding: 12px 15px;
         border-radius: 10px;
         font-size: 15px;
+    }
+
+    .vocab-card h3 {
+        margin-top: 0;
+        color: #2c2c2c;
     }
 
     .vocab-card ul {
         padding-left: 20px;
         line-height: 1.8;
-    }
-
-    .stButton > button {
-        width: 100%;
-        border-radius: 8px;
+        margin-bottom: 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ============================================================
-# TÍTULO
+# SIDEBAR - VOCABULÁRIO E RESPOSTA DO ALUNO
 # ============================================================
 
-st.markdown(
-    "<h1 class='main-title'>🐱 Whiskers Exploration - Prepositions Game</h1>",
-    unsafe_allow_html=True
-)
-
-
-# ============================================================
-# LAYOUT
-# ============================================================
-
-col_left, col_center, col_right = st.columns([1, 2.5, 1.3])
-
-
-# ============================================================
-# COLUNA ESQUERDA - VOCABULÁRIO
-# ============================================================
-
-with col_left:
+with st.sidebar:
 
     st.markdown("""
     <div class='vocab-card'>
         <h3>Place Prepositions</h3>
-
         <ul>
             <li><b>on</b> (em cima de)</li>
             <li><b>under</b> (embaixo de)</li>
             <li><b>in</b> (dentro de)</li>
             <li><b>next to</b> (ao lado de)</li>
             <li><b>between</b> (entre)</li>
-
-            <br>
-
             <li><b>behind</b> (atrás de)</li>
             <li><b>in front of</b> (na frente de)</li>
             <li><b>near</b> (perto de)</li>
@@ -221,377 +216,31 @@ with col_left:
     </div>
     """, unsafe_allow_html=True)
 
-
-# ============================================================
-# DIRETÓRIO BASE
-# ============================================================
-
-base_dir = os.path.dirname(os.path.abspath(__file__))
-
-
-# ============================================================
-# COLUNA DIREITA
-# ============================================================
-
-with col_right:
-
-    # --------------------------------------------------------
-    # SELEÇÃO DE AMBIENTE
-    # --------------------------------------------------------
-
-    st.subheader("🏠 Select Environment")
-
-    selected_room = st.selectbox(
-        "Choose a room:",
-        ["bedroom", "living_room"],
-        format_func=lambda x:
-            "🛏️ Bedroom"
-            if x == "bedroom"
-            else "🛋️ Living Room"
-    )
-
-
-    # --------------------------------------------------------
-    # DETECTA MUDANÇA DE AMBIENTE
-    # --------------------------------------------------------
-
-    if st.session_state.current_room != selected_room:
-
-        st.session_state.current_room = selected_room
-
-        # Começa o novo ambiente vazio
-        st.session_state.canvas_drawing = empty_canvas()
-
-
-    st.markdown("---")
-
-
-    # --------------------------------------------------------
-    # ASSETS DA SALA
-    # --------------------------------------------------------
-
-    furniture_dir = os.path.join(
-        base_dir,
-        selected_room,
-        "furniture"
-    )
-
-    objects_dir = os.path.join(
-        base_dir,
-        selected_room,
-        "objects"
-    )
-
-    character_path = os.path.join(
-        base_dir,
-        "characters",
-        "whiskers.png"
-    )
-
-
-    # --------------------------------------------------------
-    # PERSONAGEM
-    # --------------------------------------------------------
-
-    st.subheader("🐱 Character")
-
-    if os.path.exists(character_path):
-
-        character_col1, character_col2 = st.columns([1, 1])
-
-        with character_col1:
-            st.image(
-                character_path,
-                width=80
-            )
-
-        with character_col2:
-
-            if st.button(
-                "➕ Add Whiskers",
-                key=f"add_character_{selected_room}"
-            ):
-
-                new_object = create_image_object(
-                    character_path,
-                    "whiskers",
-                    "character"
-                )
-
-                st.session_state.canvas_drawing["objects"].append(
-                    new_object
-                )
-
-                st.rerun()
-
-
-    # --------------------------------------------------------
-    # MÓVEIS
-    # --------------------------------------------------------
-
-    st.markdown("---")
-    st.subheader("🛋️ Furniture")
-
-    if os.path.exists(furniture_dir):
-
-        furniture_files = sorted([
-            file_name
-            for file_name in os.listdir(furniture_dir)
-            if file_name.lower().endswith(".png")
-        ])
-
-        for file_name in furniture_files:
-
-            asset_path = os.path.join(
-                furniture_dir,
-                file_name
-            )
-
-            asset_name = os.path.splitext(
-                file_name
-            )[0]
-
-            label = asset_name.replace(
-                "_",
-                " "
-            ).title()
-
-            asset_col1, asset_col2 = st.columns([1, 1])
-
-            with asset_col1:
-
-                st.image(
-                    asset_path,
-                    width=70
-                )
-
-            with asset_col2:
-
-                if st.button(
-                    f"➕ {label}",
-                    key=f"add_furniture_{selected_room}_{asset_name}"
-                ):
-
-                    new_object = create_image_object(
-                        asset_path,
-                        asset_name,
-                        "furniture"
-                    )
-
-                    st.session_state.canvas_drawing["objects"].append(
-                        new_object
-                    )
-
-                    st.rerun()
-
-
-    # --------------------------------------------------------
-    # OBJETOS
-    # --------------------------------------------------------
-
-    st.markdown("---")
-    st.subheader("🧸 Objects")
-
-    if os.path.exists(objects_dir):
-
-        object_files = sorted([
-            file_name
-            for file_name in os.listdir(objects_dir)
-            if file_name.lower().endswith(".png")
-        ])
-
-        for file_name in object_files:
-
-            asset_path = os.path.join(
-                objects_dir,
-                file_name
-            )
-
-            asset_name = os.path.splitext(
-                file_name
-            )[0]
-
-            label = asset_name.replace(
-                "_",
-                " "
-            ).title()
-
-            asset_col1, asset_col2 = st.columns([1, 1])
-
-            with asset_col1:
-
-                st.image(
-                    asset_path,
-                    width=70
-                )
-
-            with asset_col2:
-
-                if st.button(
-                    f"➕ {label}",
-                    key=f"add_object_{selected_room}_{asset_name}"
-                ):
-
-                    new_object = create_image_object(
-                        asset_path,
-                        asset_name,
-                        "object"
-                    )
-
-                    st.session_state.canvas_drawing["objects"].append(
-                        new_object
-                    )
-
-                    st.rerun()
-
-
-    # --------------------------------------------------------
-    # CONTROLES
-    # --------------------------------------------------------
-
-    st.markdown("---")
-
-    if st.button(
-        "🗑️ Clear Scene",
-        key=f"clear_scene_{selected_room}"
-    ):
-
-        st.session_state.canvas_drawing = empty_canvas()
-
-        st.rerun()
-
-
-    # --------------------------------------------------------
-    # ÁUDIO
-    # --------------------------------------------------------
-
     st.markdown("---")
 
     st.subheader("🎙️ Student's Answer")
 
-    audio_file = st.audio_input(
-        "Record your explanation:"
-    )
+    audio_file = st.audio_input("Where's Whiskers? Record your answer:")
 
     if audio_file:
+        st.audio(audio_file)
         st.success("Audio recorded successfully!")
 
 
 # ============================================================
-# BACKGROUND
+# QUADRO INTERATIVO
 # ============================================================
 
-bg_path = os.path.join(
-    base_dir,
-    selected_room,
-    "background.png"
+st.markdown(
+    "<h1 class='main-title'>🐱 Where's Whiskers?</h1>"
+    "<div class='subtitle'>Pick a map, arrange the furniture and objects, "
+    "hide Whiskers and describe where the cat is.</div>",
+    unsafe_allow_html=True
 )
 
+game_data = load_game_data(ASSETS_DIR)
 
-if os.path.exists(bg_path):
-
-    bg_image = Image.open(bg_path)
-
+if not game_data["rooms"]:
+    st.error("No maps found. Add a folder with a background.png inside assets/.")
 else:
-
-    bg_image = Image.new(
-        "RGB",
-        (700, 450),
-        color=(245, 245, 245)
-    )
-
-
-# ============================================================
-# CANVAS
-# ============================================================
-
-with col_center:
-
-    st.subheader(
-        f"📍 Current Location: "
-        f"{selected_room.replace('_', ' ').title()}"
-    )
-
-    st.info(
-        "💡 Add a furniture or object using the buttons on the right. "
-        "Then use the canvas editing tool to move, resize or rotate it."
-    )
-
-
-    canvas_result = st_canvas(
-
-        fill_color="rgba(255, 165, 0, 0.3)",
-
-        stroke_width=3,
-
-        stroke_color="#000000",
-
-        background_image=bg_image,
-
-        update_streamlit=True,
-
-        height=450,
-
-        width=700,
-
-        # IMPORTANTE:
-        # "transform" NÃO existe mais como drawing_mode.
-        # O modo de edição é controlado pela toolbar.
-        drawing_mode="freedraw",
-
-        initial_drawing=st.session_state.canvas_drawing,
-
-        display_toolbar=True,
-
-        return_image_data=False,
-
-        key=f"canvas_{selected_room}",
-
-    )
-
-
-    # --------------------------------------------------------
-    # SALVA ALTERAÇÕES FEITAS NO CANVAS
-    # --------------------------------------------------------
-
-    if canvas_result.json_data is not None:
-
-        st.session_state.canvas_drawing = copy.deepcopy(
-            canvas_result.json_data
-        )
-
-
-    # --------------------------------------------------------
-    # INFORMAÇÕES DOS OBJETOS
-    # --------------------------------------------------------
-
-    objects = st.session_state.canvas_drawing.get(
-        "objects",
-        []
-    )
-
-    if objects:
-
-        st.markdown("---")
-
-        st.write(
-            f"### 📦 Objects in scene: {len(objects)}"
-        )
-
-        for index, obj in enumerate(objects):
-
-            asset_name = obj.get(
-                "asset_name",
-                "Unknown"
-            )
-
-            asset_type = obj.get(
-                "asset_type",
-                "object"
-            )
-
-            st.caption(
-                f"{index + 1}. "
-                f"{asset_name.replace('_', ' ').title()} "
-                f"({asset_type})"
-            )
+    render_board(game_data, height=780)
