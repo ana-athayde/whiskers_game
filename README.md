@@ -1,6 +1,6 @@
 # whiskers_game
 
-Where's Whiskers? — interactive board for practicing place prepositions.
+Where's Whiskers? interactive board for practicing place prepositions.
 
 ```bash
 pip install -r requirements.txt
