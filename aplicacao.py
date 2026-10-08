@@ -164,40 +164,11 @@ def render_board(game_data, height):
 # ESTILIZAÇÃO
 # ============================================================
 
-st.markdown("""
-<style>
-    .main-title {
-        text-align: center;
-        margin: 0 0 4px 0;
-    }
+streamlit_css_path = os.path.join(BASE_DIR, "frontend", "css", "streamlit.css")
+with open(streamlit_css_path, encoding="utf-8") as file:
+    streamlit_css = file.read()
 
-    .subtitle {
-        text-align: center;
-        opacity: 0.7;
-        margin-bottom: 12px;
-    }
-
-    .vocab-card {
-        background-color: #fffbe6;
-        border: 1px solid #ffe58f;
-        color: #2c2c2c;
-        padding: 12px 15px;
-        border-radius: 10px;
-        font-size: 15px;
-    }
-
-    .vocab-card h3 {
-        margin-top: 0;
-        color: #2c2c2c;
-    }
-
-    .vocab-card ul {
-        padding-left: 20px;
-        line-height: 1.8;
-        margin-bottom: 0;
-    }
-</style>
-""", unsafe_allow_html=True)
+st.markdown(f"<style>{streamlit_css}</style>", unsafe_allow_html=True)
 
 
 # ============================================================
