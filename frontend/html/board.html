@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>/*__CSS__*/</style>
+</head>
+<body>
+<div id="app">
+  <div id="tabs"></div>
+
+  <div id="palette"></div>
+
+  <div id="toolbar">
+    <span id="selection-name"></span>
+    <span id="hint">Drag items from the left onto the map. Click an item to edit it.</span>
+    <button class="tool" data-action="front" title="Bring to front">⬆ Front</button>
+    <button class="tool" data-action="back" title="Send to back">⬇ Back</button>
+    <button class="tool" data-action="flip" title="Mirror horizontally">↔ Flip</button>
+    <button class="tool" data-action="duplicate" title="Duplicate (Ctrl+D)">⧉ Duplicate</button>
+    <button class="tool danger" data-action="remove" title="Remove (Delete)">✕ Remove</button>
+    <span class="spacer"></span>
+    <button class="tool danger" data-action="clear" title="Remove everything from this map">🗑️ Clear map</button>
+  </div>
+
+  <div id="stage">
+    <div id="board-wrap"><div id="board"></div></div>
+  </div>
+</div>
+
+<div id="ghost"><img alt=""></div>
+
+
+<script>/*__JS__*/</script>
+
+</body>
+</html>

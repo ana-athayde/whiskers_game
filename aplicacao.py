@@ -135,12 +135,23 @@ def load_game_data(assets_dir):
 
 
 def render_board(game_data, height):
-    template_path = os.path.join(BASE_DIR, "board.html")
+    template_path = os.path.join(BASE_DIR, "frontend", "html", "board.html")
+    css_path = os.path.join(BASE_DIR, "frontend", "css", "board.css")
+    js_path = os.path.join(BASE_DIR, "frontend", "js", "board.js")
     with open(template_path, encoding="utf-8") as file:
         template = file.read()
+    with open(css_path, encoding="utf-8") as file:
+        css = file.read()
+    with open(js_path, encoding="utf-8") as file:
+        js = file.read()
 
     payload = json.dumps(game_data).replace("</", "<\\/")
-    html = template.replace("__GAME_DATA__", payload)
+    html = (
+        template
+        .replace("/*__CSS__*/", css)
+        .replace("/*__JS__*/", js)
+        .replace("__GAME_DATA__", payload)
+    )
 
     # st.iframe substitui components.html a partir do Streamlit 1.5x
     if hasattr(st, "iframe"):
