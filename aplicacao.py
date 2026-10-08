@@ -40,7 +40,6 @@ ROOM_LABELS = {
     "garden": "🌳 Garden",
 }
 
-
 # ============================================================
 # FUNÇÕES AUXILIARES
 # ============================================================
@@ -172,10 +171,17 @@ st.markdown(f"<style>{streamlit_css}</style>", unsafe_allow_html=True)
 
 
 # ============================================================
-# SIDEBAR - VOCABULÁRIO E RESPOSTA DO ALUNO
+# SIDEBAR - VOCABULÁRIO
 # ============================================================
 
 with st.sidebar:
+
+    st.markdown(
+        "<h1 class='main-title'>🐱 Where's Whiskers?</h1>"
+        "<div class='subtitle'>Pick a map, arrange the furniture and objects, "
+        "hide Whiskers and describe where the cat is.</div>",
+        unsafe_allow_html=True
+    )
 
     st.markdown("""
     <div class='vocab-card'>
@@ -198,27 +204,9 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    st.subheader("🎙️ Student's Answer")
-
-    audio_file = st.audio_input("Where's Whiskers? Record your answer:")
-
-    if audio_file:
-        st.audio(audio_file)
-        st.success("Audio recorded successfully!")
-
-
 # ============================================================
 # QUADRO INTERATIVO
 # ============================================================
-
-st.markdown(
-    "<h1 class='main-title'>🐱 Where's Whiskers?</h1>"
-    "<div class='subtitle'>Pick a map, arrange the furniture and objects, "
-    "hide Whiskers and describe where the cat is.</div>",
-    unsafe_allow_html=True
-)
 
 game_data = load_game_data(ASSETS_DIR)
 
